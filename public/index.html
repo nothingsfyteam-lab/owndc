@@ -396,7 +396,8 @@
         <div class="call-avatar" id="call-avatar">?</div>
         <div class="call-details">
           <h3 id="call-name">Loading...</h3>
-          <p id="call-duration">00:00</p>
+          <p id="call-type-label" style="color: var(--success); font-size: 12px; margin: 4px 0 0 0;">Voice Call</p>
+          <p id="call-duration" style="margin: 0;">00:00</p>
         </div>
       </div>
       <button class="call-close" onclick="endDirectCall()"><i class="fas fa-times"></i></button>
@@ -409,15 +410,15 @@
         </div>
         <div class="remote-video-wrapper" id="remote-video-wrapper">
           <video id="remote-video-direct" autoplay playsinline style="width: 100%; height: 100%; border-radius: 8px; background: black;"></video>
-          <div class="video-label" id="remote-video-label">Call in progress...</div>
+          <div class="video-label" id="remote-video-label">Connecting...</div>
         </div>
       </div>
     </div>
     <div class="call-controls">
-      <button class="call-btn" id="direct-mute-btn" onclick="toggleDirectCallMute()" title="Mute">
+      <button class="call-btn" id="direct-mute-btn" onclick="toggleDirectCallMute()" title="Mute Microphone">
         <i class="fas fa-microphone"></i>
       </button>
-      <button class="call-btn" id="direct-video-btn" onclick="toggleDirectCallVideo()" title="Camera">
+      <button class="call-btn" id="direct-video-btn" onclick="toggleDirectCallVideo()" title="Camera" style="display: none;">
         <i class="fas fa-video"></i>
       </button>
       <button class="call-btn end" onclick="endDirectCall()" title="End Call">
@@ -428,13 +429,13 @@
 
   <!-- Incoming Call Modal -->
   <div id="incoming-call-modal" class="modal hidden">
-    <div class="modal-content" style="max-width: 350px; text-align: center; padding: 24px;">
-      <div class="incoming-call-avatar" id="incoming-call-avatar" style="width: 80px; height: 80px; border-radius: 50%; background: var(--primary); margin: 0 auto 16px; display: flex; align-items: center; justify-content: center; font-size: 32px; font-weight: bold; color: white;">?</div>
-      <h3 id="incoming-call-name" style="margin-bottom: 8px;">Incoming Call...</h3>
-      <p id="incoming-call-type" style="color: var(--text-secondary); margin-bottom: 24px;">Voice Call</p>
-      <div style="display: flex; gap: 16px; justify-content: center;">
-        <button onclick="acceptIncomingCall()" style="width: 60px; height: 60px; border-radius: 50%; background: var(--success); color: white; border: none; cursor: pointer; font-size: 24px;"><i class="fas fa-phone"></i></button>
-        <button onclick="rejectIncomingCall()" style="width: 60px; height: 60px; border-radius: 50%; background: var(--danger); color: white; border: none; cursor: pointer; font-size: 24px;"><i class="fas fa-phone-slash"></i></button>
+    <div class="modal-content" style="max-width: 380px; text-align: center; padding: 40px 32px;">
+      <div class="incoming-call-avatar" id="incoming-call-avatar" style="width: 100px; height: 100px; border-radius: 50%; background: var(--primary); margin: 0 auto 24px; display: flex; align-items: center; justify-content: center; font-size: 40px; font-weight: bold; color: white;">?</div>
+      <h3 id="incoming-call-name" style="margin: 0 0 8px 0; font-size: 24px;">Incoming Call...</h3>
+      <p id="incoming-call-type" style="color: var(--text-secondary); margin: 0 0 32px 0; font-size: 14px;">Voice Call</p>
+      <div style="display: flex; gap: 20px; justify-content: center;">
+        <button onclick="acceptIncomingCall()" style="width: 68px; height: 68px; border-radius: 50%; background: var(--success); color: white; border: none; cursor: pointer; font-size: 28px; box-shadow: 0 4px 12px rgba(59, 165, 93, 0.3);"><i class="fas fa-phone"></i></button>
+        <button onclick="rejectIncomingCall()" style="width: 68px; height: 68px; border-radius: 50%; background: var(--danger); color: white; border: none; cursor: pointer; font-size: 28px; box-shadow: 0 4px 12px rgba(237, 66, 69, 0.3);"><i class="fas fa-phone-slash"></i></button>
       </div>
       <audio id="ringtone-audio" loop>
         <source src="https://assets.mixkit.co/sfx/preview/mixkit-waiting-ring-tone-1354.mp3" type="audio/mpeg">

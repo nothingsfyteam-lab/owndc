@@ -400,6 +400,9 @@ function initializeSocket() {
 
   socket.on('incoming-call', (data) => {
     const { callId, callType, caller } = data;
+    // Store caller info
+    currentDirectCall = caller;
+    currentCallId = callId;
     showIncomingCallNotification(callId, callType, caller);
   });
 
@@ -429,18 +432,22 @@ function initializeSocket() {
 
   socket.on('call-offer', async (data) => {
     const { callId, userId, offer } = data;
-    if (!directCallPC) {
-      directCallPC = createDirectCallPeerConnection(userId);
-    }
     try {
-      await directCallPC.setRemoteDescription(new RTCSessionDescription(offer));
-      const answer = await directCallPC.createAnswer();
-      await directCallPC.setLocalDescription(answer);
-      socket.emit('call-answer', {
-        callId,
-        targetUserId: userId,
-        answer: answer
-      });
+      // Store the offer for when user accepts
+      window.pendingCallOffer = { callId, userId, offer };
+      
+      // If localStream is already available, process immediately
+      if (localStream && !directCallPC) {
+        directCallPC = createDirectCallPeerConnection(userId);
+        await directCallPC.setRemoteDescription(new RTCSessionDescription(offer));
+        const answer = await directCallPC.createAnswer();
+        await directCallPC.setLocalDescription(answer);
+        socket.emit('call-answer', {
+          callId,
+          targetUserId: userId,
+          answer: answer
+        });
+      }
     } catch (error) {
       console.error('Error handling call offer:', error);
     }
@@ -682,21 +689,66 @@ function renderFriends() {
     
     const avatarLetter = friend.username.charAt(0).toUpperCase();
     const statusClass = friend.user_status || friend.status || 'offline';
+    const isOnline = statusClass === 'online';
     
     friendEl.innerHTML = `
       <div class="friend-avatar" style="position: relative;">${avatarLetter}
         <div class="status-indicator ${statusClass}" style="position: absolute; bottom: 0; right: 0;"></div>
       </div>
       <span class="friend-name" style="flex: 1;">${friend.username}</span>
-      <button class="friend-call-btn" style="background: ${statusClass === 'online' ? 'var(--success)' : 'var(--text-muted)'}; width: 28px; height: 28px; border: none; border-radius: 4px; color: white; cursor: ${statusClass === 'online' ? 'pointer' : 'not-allowed'}; font-size: 12px;" onclick="event.stopPropagation(); ${statusClass === 'online' ? `initiateDirectCall('${friend.id}', '${friend.username}', '${friend.avatar || ''}', false)` : ''}" title="Call" ${statusClass !== 'online' ? 'disabled' : ''}>
-        <i class="fas fa-phone"></i>
-      </button>
     `;
     
-    const clickArea = friendEl.querySelector('.friend-name');
-    if (clickArea) {
-      clickArea.style.cursor = 'pointer';
-      friendEl.onclick = () => openDM(friend);
+    // Voice call button
+    const voiceBtn = document.createElement('button');
+    voiceBtn.style.background = isOnline ? 'var(--success)' : 'var(--text-muted)';
+    voiceBtn.style.width = '28px';
+    voiceBtn.style.height = '28px';
+    voiceBtn.style.border = 'none';
+    voiceBtn.style.borderRadius = '4px';
+    voiceBtn.style.color = 'white';
+    voiceBtn.style.cursor = isOnline ? 'pointer' : 'not-allowed';
+    voiceBtn.style.fontSize = '12px';
+    voiceBtn.style.display = 'flex';
+    voiceBtn.style.alignItems = 'center';
+    voiceBtn.style.justifyContent = 'center';
+    voiceBtn.innerHTML = '<i class="fas fa-phone"></i>';
+    voiceBtn.title = 'Voice Call';
+    if (isOnline) {
+      voiceBtn.onclick = (e) => {
+        e.stopPropagation();
+        initiateVoiceCall(friend.id, friend.username, friend.avatar || '');
+      };
+    }
+    
+    // Video call button
+    const videoBtn = document.createElement('button');
+    videoBtn.style.background = isOnline ? '#5865F2' : 'var(--text-muted)';
+    videoBtn.style.width = '28px';
+    videoBtn.style.height = '28px';
+    videoBtn.style.border = 'none';
+    videoBtn.style.borderRadius = '4px';
+    videoBtn.style.color = 'white';
+    videoBtn.style.cursor = isOnline ? 'pointer' : 'not-allowed';
+    videoBtn.style.fontSize = '12px';
+    videoBtn.style.display = 'flex';
+    videoBtn.style.alignItems = 'center';
+    videoBtn.style.justifyContent = 'center';
+    videoBtn.innerHTML = '<i class="fas fa-video"></i>';
+    videoBtn.title = 'Video Call';
+    if (isOnline) {
+      videoBtn.onclick = (e) => {
+        e.stopPropagation();
+        initiateVideoCall(friend.id, friend.username, friend.avatar || '');
+      };
+    }
+    
+    friendEl.appendChild(voiceBtn);
+    friendEl.appendChild(videoBtn);
+    
+    const nameEl = friendEl.querySelector('.friend-name');
+    if (nameEl) {
+      nameEl.style.cursor = 'pointer';
+      nameEl.onclick = () => openDM(friend);
     }
     
     return friendEl;
@@ -1888,24 +1940,39 @@ function showIncomingCallNotification(callId, callType, caller) {
 }
 
 async function acceptIncomingCall() {
-  closeAllModals();
-  
-  if (!currentCallId) return;
+  if (!currentCallId || !currentDirectCall) return;
   
   try {
+    // Request microphone
     localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     
-    directCallPC = createDirectCallPeerConnection(null);
+    // Create peer connection with caller's ID
+    directCallPC = createDirectCallPeerConnection(currentDirectCall.id);
     
+    // If we have a pending offer, process it now
+    if (window.pendingCallOffer && window.pendingCallOffer.callId === currentCallId) {
+      const { offer, userId } = window.pendingCallOffer;
+      await directCallPC.setRemoteDescription(new RTCSessionDescription(offer));
+      const answer = await directCallPC.createAnswer();
+      await directCallPC.setLocalDescription(answer);
+      socket.emit('call-answer', {
+        callId: currentCallId,
+        targetUserId: userId,
+        answer: answer
+      });
+      window.pendingCallOffer = null;
+    }
+    
+    // Emit acceptance
     socket.emit('call-accept', { callId: currentCallId });
     
-    showCallInterface(currentDirectCall);
+    showCallInterface(currentDirectCall, 'voice');
     startCallTimer();
     
     showNotification('Call connected', 'success');
   } catch (error) {
     console.error('Error accepting call:', error);
-    showNotification('Could not access microphone', 'error');
+    showNotification('Could not access microphone: ' + error.message, 'error');
     rejectIncomingCall();
   }
 }
@@ -1924,7 +1991,17 @@ function rejectIncomingCall() {
   currentDirectCall = null;
 }
 
-async function initiateDirectCall(friendId, friendName, friendAvatar, isVideo = false) {
+// Initiate Voice Call
+async function initiateVoiceCall(friendId, friendName, friendAvatar) {
+  return initiateDirectCall(friendId, friendName, friendAvatar, 'voice');
+}
+
+// Initiate Video Call
+async function initiateVideoCall(friendId, friendName, friendAvatar) {
+  return initiateDirectCall(friendId, friendName, friendAvatar, 'video');
+}
+
+async function initiateDirectCall(friendId, friendName, friendAvatar, callType = 'voice') {
   if (currentCallId && currentDirectCall) {
     showNotification('You already have an active call', 'warning');
     return;
@@ -1932,11 +2009,11 @@ async function initiateDirectCall(friendId, friendName, friendAvatar, isVideo = 
   
   try {
     // Request microphone and optionally camera
-    const constraints = { audio: true, video: isVideo };
+    const constraints = { 
+      audio: true, 
+      video: callType === 'video' ? { width: 1280, height: 720 } : false 
+    };
     localStream = await navigator.mediaDevices.getUserMedia(constraints);
-    
-    // Create peer connection
-    directCallPC = createDirectCallPeerConnection(friendId);
     
     // Generate call ID
     currentCallId = 'call_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
@@ -1947,13 +2024,16 @@ async function initiateDirectCall(friendId, friendName, friendAvatar, isVideo = 
       avatar: friendAvatar
     };
     
+    // Create peer connection
+    directCallPC = createDirectCallPeerConnection(friendId);
+    
     // Create and send offer
     const offer = await directCallPC.createOffer();
     await directCallPC.setLocalDescription(offer);
     
     socket.emit('call-initiate', {
       targetUserId: friendId,
-      callType: isVideo ? 'video' : 'voice',
+      callType: callType,
       callId: currentCallId
     });
     
@@ -1963,12 +2043,21 @@ async function initiateDirectCall(friendId, friendName, friendAvatar, isVideo = 
       offer: offer
     });
     
-    showCallInterface(currentDirectCall);
+    showCallInterface(currentDirectCall, callType);
+    
+    // Show video button only for video calls
+    const videoBtnEl = document.getElementById('direct-video-btn');
+    if (videoBtnEl) {
+      videoBtnEl.style.display = callType === 'video' ? 'flex' : 'none';
+    }
+    
     showNotification(`Calling ${friendName}...`, 'info');
     
   } catch (error) {
     console.error('Error initiating call:', error);
-    showNotification('Could not access microphone/camera: ' + error.message, 'error');
+    showNotification('Could not access media: ' + error.message, 'error');
+    currentCallId = null;
+    currentDirectCall = null;
   }
 }
 
@@ -2019,15 +2108,26 @@ function createDirectCallPeerConnection(remoteUserId) {
   return pc;
 }
 
-function showCallInterface(user) {
+function showCallInterface(user, callType = 'voice') {
   const callInterface = document.getElementById('call-interface');
   if (callInterface) {
     callInterface.classList.remove('hidden');
   }
   
   document.getElementById('call-name').textContent = user.username;
-  document.getElementById('call-avatar').textContent = user.username.charAt(0).toUpperCase();
-  document.getElementById('call-avatar').style.background = 'var(--primary)';
+  
+  const avatarEl = document.getElementById('call-avatar');
+  if (user.avatar) {
+    avatarEl.innerHTML = `<img src="${user.avatar}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;">`;
+  } else {
+    avatarEl.innerHTML = user.username.charAt(0).toUpperCase();
+  }
+  avatarEl.style.background = 'var(--primary)';
+  
+  const typeEl = document.getElementById('call-type-label');
+  if (typeEl) {
+    typeEl.textContent = callType === 'video' ? 'Video Call' : 'Voice Call';
+  }
   
   const localVideo = document.getElementById('local-video-direct');
   if (localVideo && localStream) {
