@@ -396,4 +396,66 @@ router.post('/:id/members/:userId/roles/:roleId', requireAuth, async (req, res) 
   }
 });
 
+// Add members to server (owner only)
+router.post('/:id/members', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { userIds } = req.body;
+
+    if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
+      return res.status(400).json({ error: 'userIds array is required' });
+    }
+
+    const server = await dbGet('SELECT * FROM servers WHERE id = ?', [id]);
+    if (!server) {
+      return res.status(404).json({ error: 'Server not found' });
+    }
+
+    // Check if requester is owner
+    if (server.owner_id !== req.session.userId) {
+      return res.status(403).json({ error: 'Only server owner can add members' });
+    }
+
+    const addedMembers = [];
+    const errors = [];
+
+    for (const userId of userIds) {
+      try {
+        // Check if user exists
+        const user = await dbGet('SELECT id, username, avatar FROM users WHERE id = ?', [userId]);
+        if (!user) {
+          errors.push({ userId, error: 'User not found' });
+          continue;
+        }
+
+        // Check if already a member
+        const existing = await dbGet('SELECT * FROM server_members WHERE server_id = ? AND user_id = ?', [id, userId]);
+        if (existing) {
+          errors.push({ userId, error: 'Already a member' });
+          continue;
+        }
+
+        // Add member
+        await dbRun(
+          'INSERT INTO server_members (id, server_id, user_id) VALUES (?, ?, ?)',
+          [uuidv4(), id, userId]
+        );
+
+        addedMembers.push(user);
+      } catch (err) {
+        errors.push({ userId, error: err.message });
+      }
+    }
+
+    res.json({
+      message: `Added ${addedMembers.length} members to server`,
+      added: addedMembers,
+      errors: errors.length > 0 ? errors : undefined
+    });
+  } catch (error) {
+    console.error('Add members error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 module.exports = router;

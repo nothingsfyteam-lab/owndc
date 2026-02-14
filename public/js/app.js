@@ -14,6 +14,8 @@ let currentView = 'home';
 let servers = [];
 let channels = [];
 let friends = [];
+let pendingRequests = [];
+let sentRequests = [];
 let groupDMs = [];
 let serverMembers = [];
 let serverRoles = [];
@@ -31,6 +33,15 @@ let isVideoOn = false;
 let isScreenSharing = false;
 let currentVoiceChannel = null;
 let voiceParticipants = new Map();
+
+// Direct Call state
+let currentDirectCall = null;
+let currentCallId = null;
+let directCallPC = null;
+let directCallMuted = false;
+let directCallVideoOn = false;
+let callTimer = null;
+let callStartTime = null;
 
 // UI state
 let typingTimeout = null;
@@ -385,6 +396,78 @@ function initializeSocket() {
     await handleIceCandidate(data.userId, data.candidate);
   });
 
+  // ==================== DIRECT CALL HANDLERS ====================
+
+  socket.on('incoming-call', (data) => {
+    const { callId, callType, caller } = data;
+    showIncomingCallNotification(callId, callType, caller);
+  });
+
+  socket.on('call-accepted', (data) => {
+    const { callId, callee } = data;
+    currentDirectCall = callee;
+    currentCallId = callId;
+    closeAllModals();
+    showCallInterface(callee);
+    startCallTimer();
+    console.log('Call accepted by:', callee.username);
+  });
+
+  socket.on('call-rejected', (data) => {
+    const { callId, reason } = data;
+    endDirectCall();
+    showNotification(`Call rejected: ${reason}`, 'info');
+  });
+
+  socket.on('call-ended', (data) => {
+    const { callId } = data;
+    if (currentCallId === callId) {
+      endDirectCall();
+      showNotification('Call ended', 'info');
+    }
+  });
+
+  socket.on('call-offer', async (data) => {
+    const { callId, userId, offer } = data;
+    if (!directCallPC) {
+      directCallPC = createDirectCallPeerConnection(userId);
+    }
+    try {
+      await directCallPC.setRemoteDescription(new RTCSessionDescription(offer));
+      const answer = await directCallPC.createAnswer();
+      await directCallPC.setLocalDescription(answer);
+      socket.emit('call-answer', {
+        callId,
+        targetUserId: userId,
+        answer: answer
+      });
+    } catch (error) {
+      console.error('Error handling call offer:', error);
+    }
+  });
+
+  socket.on('call-answer', async (data) => {
+    const { callId, userId, answer } = data;
+    if (directCallPC) {
+      try {
+        await directCallPC.setRemoteDescription(new RTCSessionDescription(answer));
+      } catch (error) {
+        console.error('Error handling call answer:', error);
+      }
+    }
+  });
+
+  socket.on('call-ice-candidate', async (data) => {
+    const { callId, userId, candidate } = data;
+    if (directCallPC) {
+      try {
+        await directCallPC.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (error) {
+        console.error('Error adding ICE candidate:', error);
+      }
+    }
+  });
+
   socket.on('disconnect', () => {
     console.log('Socket disconnected');
   });
@@ -441,7 +524,10 @@ async function loadFriends() {
     if (response.ok) {
       const data = await response.json();
       friends = data.friends;
+      pendingRequests = data.pendingRequests || [];
+      sentRequests = data.sentRequests || [];
       renderFriends();
+      renderFriendRequests();
     }
   } catch (error) {
     console.error('Error loading friends:', error);
@@ -567,30 +653,88 @@ function renderFriends() {
   
   container.innerHTML = '';
 
+  // Update notification badge
+  const badge = document.getElementById('friend-request-badge');
+  if (badge) {
+    if (pendingRequests.length > 0) {
+      badge.textContent = pendingRequests.length;
+      badge.style.display = 'flex';
+    } else {
+      badge.style.display = 'none';
+    }
+  }
+
   if (friends.length === 0) {
     container.innerHTML = '<div style="padding: 8px; color: var(--text-muted); font-size: 12px;">No friends yet</div>';
     return;
   }
 
-  friends.forEach(friend => {
+  const onlineFriends = friends.filter(f => f.user_status === 'online' || f.status === 'online');
+  const offlineFriends = friends.filter(f => f.user_status !== 'online' && f.status !== 'online');
+
+  const renderFriendElement = (friend) => {
     const friendEl = document.createElement('div');
     friendEl.className = 'friend-item' + (currentView === 'dm' && currentChannel?.userId === friend.id ? ' active' : '');
-    friendEl.onclick = () => openDM(friend);
+    friendEl.style.display = 'flex';
+    friendEl.style.alignItems = 'center';
+    friendEl.style.gap = '8px';
+    friendEl.style.position = 'relative';
     
     const avatarLetter = friend.username.charAt(0).toUpperCase();
-    const statusClass = friend.user_status || 'offline';
+    const statusClass = friend.user_status || friend.status || 'offline';
     
     friendEl.innerHTML = `
-      <div class="friend-avatar">${avatarLetter}</div>
-      <div class="status-indicator ${statusClass}"></div>
-      <span class="friend-name">${friend.username}</span>
-      <button class="friend-call-btn" onclick="event.stopPropagation(); callFriend('${friend.id}')" title="Call">
+      <div class="friend-avatar" style="position: relative;">${avatarLetter}
+        <div class="status-indicator ${statusClass}" style="position: absolute; bottom: 0; right: 0;"></div>
+      </div>
+      <span class="friend-name" style="flex: 1;">${friend.username}</span>
+      <button class="friend-call-btn" style="background: ${statusClass === 'online' ? 'var(--success)' : 'var(--text-muted)'}; width: 28px; height: 28px; border: none; border-radius: 4px; color: white; cursor: ${statusClass === 'online' ? 'pointer' : 'not-allowed'}; font-size: 12px;" onclick="event.stopPropagation(); ${statusClass === 'online' ? `initiateDirectCall('${friend.id}', '${friend.username}', '${friend.avatar || ''}', false)` : ''}" title="Call" ${statusClass !== 'online' ? 'disabled' : ''}>
         <i class="fas fa-phone"></i>
       </button>
     `;
     
-    container.appendChild(friendEl);
-  });
+    const clickArea = friendEl.querySelector('.friend-name');
+    if (clickArea) {
+      clickArea.style.cursor = 'pointer';
+      friendEl.onclick = () => openDM(friend);
+    }
+    
+    return friendEl;
+  };
+
+  if (onlineFriends.length > 0) {
+    const section = document.createElement('div');
+    const header = document.createElement('div');
+    header.style.fontSize = '12px';
+    header.style.fontWeight = '600';
+    header.style.color = 'var(--text-muted)';
+    header.style.padding = '8px 12px';
+    header.textContent = `ONLINE — ${onlineFriends.length}`;
+    section.appendChild(header);
+    
+    onlineFriends.forEach(friend => {
+      section.appendChild(renderFriendElement(friend));
+    });
+    
+    container.appendChild(section);
+  }
+
+  if (offlineFriends.length > 0) {
+    const section = document.createElement('div');
+    const header = document.createElement('div');
+    header.style.fontSize = '12px';
+    header.style.fontWeight = '600';
+    header.style.color = 'var(--text-muted)';
+    header.style.padding = '8px 12px';
+    header.textContent = `OFFLINE — ${offlineFriends.length}`;
+    section.appendChild(header);
+    
+    offlineFriends.forEach(friend => {
+      section.appendChild(renderFriendElement(friend));
+    });
+    
+    container.appendChild(section);
+  }
 }
 
 function renderGroupDMs() {
@@ -1166,6 +1310,76 @@ async function createGroup() {
 // ==================== FRIENDS ====================
 function showAddFriend() {
   openModal('add-friend-modal');
+  renderFriendRequests();
+}
+
+function renderFriendRequests() {
+  const container = document.getElementById('friend-requests-list');
+  if (!container) return;
+  
+  container.innerHTML = '';
+  
+  // Pending requests (incoming)
+  if (pendingRequests.length > 0) {
+    const pendingHeader = document.createElement('div');
+    pendingHeader.className = 'requests-section-header';
+    pendingHeader.textContent = `Incoming Requests (${pendingRequests.length})`;
+    pendingHeader.style.cssText = 'font-weight: 600; color: var(--primary); margin: 16px 0 8px 0; font-size: 12px; text-transform: uppercase;';
+    container.appendChild(pendingHeader);
+    
+    pendingRequests.forEach(request => {
+      const requestEl = document.createElement('div');
+      requestEl.className = 'friend-request-item';
+      requestEl.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 12px; background: var(--bg-dark); border-radius: 4px; margin-bottom: 8px;';
+      
+      const avatarLetter = request.username.charAt(0).toUpperCase();
+      
+      requestEl.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div class="friend-avatar" style="width: 40px; height: 40px; border-radius: 50%; background: var(--primary); display: flex; align-items: center; justify-content: center; font-weight: 600;">${avatarLetter}</div>
+          <span style="color: var(--text-primary); font-weight: 500;">${request.username}</span>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button onclick="acceptFriendRequest('${request.friendship_id}')" style="padding: 8px 16px; background: var(--success); border: none; border-radius: 4px; color: white; cursor: pointer; font-weight: 600;">Accept</button>
+          <button onclick="declineFriendRequest('${request.friendship_id}')" style="padding: 8px 16px; background: var(--bg-lighter); border: none; border-radius: 4px; color: var(--text-secondary); cursor: pointer; font-weight: 600;">Decline</button>
+        </div>
+      `;
+      
+      container.appendChild(requestEl);
+    });
+  }
+  
+  // Sent requests (outgoing)
+  if (sentRequests.length > 0) {
+    const sentHeader = document.createElement('div');
+    sentHeader.className = 'requests-section-header';
+    sentHeader.textContent = `Outgoing Requests (${sentRequests.length})`;
+    sentHeader.style.cssText = 'font-weight: 600; color: var(--text-secondary); margin: 16px 0 8px 0; font-size: 12px; text-transform: uppercase;';
+    container.appendChild(sentHeader);
+    
+    sentRequests.forEach(request => {
+      const requestEl = document.createElement('div');
+      requestEl.className = 'friend-request-item';
+      requestEl.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 12px; background: var(--bg-dark); border-radius: 4px; margin-bottom: 8px;';
+      
+      const avatarLetter = request.username.charAt(0).toUpperCase();
+      
+      requestEl.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div class="friend-avatar" style="width: 40px; height: 40px; border-radius: 50%; background: var(--bg-lighter); display: flex; align-items: center; justify-content: center; font-weight: 600;">${avatarLetter}</div>
+          <span style="color: var(--text-primary);">${request.username}</span>
+        </div>
+        <span style="color: var(--text-muted); font-size: 12px;">Pending...</span>
+      `;
+      
+      container.appendChild(requestEl);
+    });
+  }
+  
+  // Show message if no requests
+  if (pendingRequests.length === 0 && sentRequests.length === 0) {
+    container.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 20px;">No pending friend requests</div>';
+  }
 }
 
 async function sendFriendRequest() {
@@ -1186,6 +1400,7 @@ async function sendFriendRequest() {
       const data = await response.json();
       showNotification('Friend request sent!', 'success');
       document.getElementById('friend-username').value = '';
+      loadFriends(); // Refresh the requests list
       socket.emit('friend-request', {
         targetUserId: data.friend.id,
         friendshipId: data.friendship_id
@@ -1645,6 +1860,386 @@ function closePeerConnection(userId) {
   if (pc) {
     pc.close();
     peerConnections.delete(userId);
+  }
+}
+
+// ==================== DIRECT CALL FUNCTIONS ====================
+
+function showIncomingCallNotification(callId, callType, caller) {
+  currentCallId = callId;
+  
+  const modal = document.getElementById('incoming-call-modal');
+  document.getElementById('incoming-call-name').textContent = caller.username;
+  document.getElementById('incoming-call-type').textContent = callType === 'video' ? 'Video Call' : 'Voice Call';
+  
+  const avatarDiv = document.getElementById('incoming-call-avatar');
+  if (caller.avatar) {
+    avatarDiv.innerHTML = `<img src="${caller.avatar}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;">`;
+  } else {
+    avatarDiv.textContent = caller.username.charAt(0).toUpperCase();
+  }
+  
+  openModal('incoming-call-modal');
+  
+  const ringtonAudio = document.getElementById('ringtone-audio');
+  if (ringtonAudio) {
+    ringtonAudio.play().catch(e => console.log('Autoplay prevented'));
+  }
+}
+
+async function acceptIncomingCall() {
+  closeAllModals();
+  
+  if (!currentCallId) return;
+  
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    
+    directCallPC = createDirectCallPeerConnection(null);
+    
+    socket.emit('call-accept', { callId: currentCallId });
+    
+    showCallInterface(currentDirectCall);
+    startCallTimer();
+    
+    showNotification('Call connected', 'success');
+  } catch (error) {
+    console.error('Error accepting call:', error);
+    showNotification('Could not access microphone', 'error');
+    rejectIncomingCall();
+  }
+}
+
+function rejectIncomingCall() {
+  if (currentCallId) {
+    socket.emit('call-reject', { callId: currentCallId });
+    const ringtonAudio = document.getElementById('ringtone-audio');
+    if (ringtonAudio) {
+      ringtonAudio.pause();
+      ringtonAudio.currentTime = 0;
+    }
+  }
+  closeAllModals();
+  currentCallId = null;
+  currentDirectCall = null;
+}
+
+async function initiateDirectCall(friendId, friendName, friendAvatar, isVideo = false) {
+  if (currentCallId && currentDirectCall) {
+    showNotification('You already have an active call', 'warning');
+    return;
+  }
+  
+  try {
+    // Request microphone and optionally camera
+    const constraints = { audio: true, video: isVideo };
+    localStream = await navigator.mediaDevices.getUserMedia(constraints);
+    
+    // Create peer connection
+    directCallPC = createDirectCallPeerConnection(friendId);
+    
+    // Generate call ID
+    currentCallId = 'call_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    
+    currentDirectCall = {
+      id: friendId,
+      username: friendName,
+      avatar: friendAvatar
+    };
+    
+    // Create and send offer
+    const offer = await directCallPC.createOffer();
+    await directCallPC.setLocalDescription(offer);
+    
+    socket.emit('call-initiate', {
+      targetUserId: friendId,
+      callType: isVideo ? 'video' : 'voice',
+      callId: currentCallId
+    });
+    
+    socket.emit('call-offer', {
+      callId: currentCallId,
+      targetUserId: friendId,
+      offer: offer
+    });
+    
+    showCallInterface(currentDirectCall);
+    showNotification(`Calling ${friendName}...`, 'info');
+    
+  } catch (error) {
+    console.error('Error initiating call:', error);
+    showNotification('Could not access microphone/camera: ' + error.message, 'error');
+  }
+}
+
+function createDirectCallPeerConnection(remoteUserId) {
+  const pc = new RTCPeerConnection({
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' }
+    ]
+  });
+  
+  // Add local stream tracks
+  if (localStream) {
+    localStream.getTracks().forEach(track => {
+      pc.addTrack(track, localStream);
+    });
+  }
+  
+  // Handle remote stream
+  pc.ontrack = (event) => {
+    console.log('Remote track received:', event.track.kind);
+    const remoteVideo = document.getElementById('remote-video-direct');
+    if (remoteVideo && event.streams[0]) {
+      remoteVideo.srcObject = event.streams[0];
+    }
+  };
+  
+  // Handle ICE candidates
+  pc.onicecandidate = (event) => {
+    if (event.candidate) {
+      socket.emit('call-ice-candidate', {
+        callId: currentCallId,
+        targetUserId: remoteUserId || currentDirectCall?.id,
+        candidate: event.candidate
+      });
+    }
+  };
+  
+  // Handle connection state changes
+  pc.onconnectionstatechange = () => {
+    console.log('Connection state:', pc.connectionState);
+    if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+      endDirectCall();
+    }
+  };
+  
+  return pc;
+}
+
+function showCallInterface(user) {
+  const callInterface = document.getElementById('call-interface');
+  if (callInterface) {
+    callInterface.classList.remove('hidden');
+  }
+  
+  document.getElementById('call-name').textContent = user.username;
+  document.getElementById('call-avatar').textContent = user.username.charAt(0).toUpperCase();
+  document.getElementById('call-avatar').style.background = 'var(--primary)';
+  
+  const localVideo = document.getElementById('local-video-direct');
+  if (localVideo && localStream) {
+    localVideo.srcObject = localStream;
+  }
+}
+
+function endDirectCall() {
+  if (callTimer) {
+    clearInterval(callTimer);
+    callTimer = null;
+  }
+  
+  if (currentCallId) {
+    socket.emit('call-end', { callId: currentCallId });
+  }
+  
+  if (directCallPC) {
+    directCallPC.close();
+    directCallPC = null;
+  }
+  
+  if (localStream) {
+    localStream.getTracks().forEach(track => track.stop());
+    localStream = null;
+  }
+  
+  try {
+    const ringtonAudio = document.getElementById('ringtone-audio');
+    if (ringtonAudio) {
+      ringtonAudio.pause();
+      ringtonAudio.currentTime = 0;
+    }
+  } catch (e) {}
+  
+  const callInterface = document.getElementById('call-interface');
+  if (callInterface) {
+    callInterface.classList.add('hidden');
+  }
+  
+  currentCallId = null;
+  currentDirectCall = null;
+  directCallMuted = false;
+  directCallVideoOn = false;
+  
+  closeAllModals();
+}
+
+function startCallTimer() {
+  callStartTime = Date.now();
+  const durationElement = document.getElementById('call-duration');
+  
+  if (callTimer) clearInterval(callTimer);
+  
+  callTimer = setInterval(() => {
+    if (callStartTime) {
+      const elapsed = Math.floor((Date.now() - callStartTime) / 1000);
+      const minutes = Math.floor(elapsed / 60);
+      const seconds = elapsed % 60;
+      if (durationElement) {
+        durationElement.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+      }
+    }
+  }, 1000);
+}
+
+function toggleDirectCallMute() {
+  if (localStream) {
+    directCallMuted = !directCallMuted;
+    localStream.getAudioTracks().forEach(track => {
+      track.enabled = !directCallMuted;
+    });
+    
+    const btn = document.getElementById('direct-mute-btn');
+    if (btn) {
+      if (directCallMuted) {
+        btn.style.background = 'var(--danger)';
+        btn.innerHTML = '<i class="fas fa-microphone-slash"></i>';
+      } else {
+        btn.style.background = '';
+        btn.innerHTML = '<i class="fas fa-microphone"></i>';
+      }
+    }
+  }
+}
+
+function toggleDirectCallVideo() {
+  if (localStream) {
+    directCallVideoOn = !directCallVideoOn;
+    
+    if (directCallVideoOn) {
+      navigator.mediaDevices.getUserMedia({ video: true }).then(videoStream => {
+        const videoTrack = videoStream.getVideoTracks()[0];
+        
+        // Replace audio track or add video track
+        const sender = directCallPC?.getSenders().find(s => s.track?.kind === 'video');
+        if (sender) {
+          sender.replaceTrack(videoTrack);
+        } else {
+          directCallPC?.addTrack(videoTrack, localStream);
+        }
+        
+        // Show video locally
+        const localVideo = document.getElementById('local-video-direct');
+        if (localVideo) {
+          localVideo.srcObject = videoStream;
+        }
+      });
+    } else {
+      if (directCallPC) {
+        const videoSender = directCallPC.getSenders().find(s => s.track?.kind === 'video');
+        if (videoSender) {
+          videoSender.track?.stop();
+          videoSender.replaceTrack(null);
+        }
+      }
+    }
+    
+    const btn = document.getElementById('direct-video-btn');
+    if (btn) {
+      if (directCallVideoOn) {
+        btn.style.background = 'var(--success)';
+      } else {
+        btn.style.background = '';
+      }
+    }
+  }
+}
+
+// Update the friend render function to include call buttons - DONE (integrated into renderFriends above)
+
+// Add members to server function
+async function showAddServerMembers() {
+  try {
+    const response = await fetch('/api/friends');
+    if (response.ok) {
+      const friendsList = await response.json();
+      
+      const container = document.getElementById('server-friend-selector-list');
+      if (!container) return;
+      
+      container.innerHTML = '';
+      
+      friendsList.forEach(friend => {
+        const label = document.createElement('label');
+        label.style.display = 'flex';
+        label.style.alignItems = 'center';
+        label.style.gap = '12px';
+        label.style.padding = '8px';
+        label.style.borderRadius = '4px';
+        label.style.cursor = 'pointer';
+        label.style.transition = 'background 0.2s';
+        
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.value = friend.id;
+        checkbox.className = 'server-member-checkbox';
+        
+        const info = document.createElement('div');
+        info.style.flex = '1';
+        info.textContent = friend.username;
+        
+        label.appendChild(checkbox);
+        label.appendChild(info);
+        
+        label.onmouseover = () => label.style.background = 'var(--channel-hover)';
+        label.onmouseout = () => label.style.background = 'transparent';
+        
+        container.appendChild(label);
+      });
+      
+      openModal('add-server-members-modal');
+    }
+  } catch (error) {
+    console.error('Error loading friends:', error);
+  }
+}
+
+async function addMembersToServer() {
+  if (!currentServer) {
+    showNotification('Please select a server first', 'warning');
+    return;
+  }
+  
+  const checkboxes = document.querySelectorAll('.server-member-checkbox:checked');
+  const selectedFriends = Array.from(checkboxes).map(cb => cb.value);
+  
+  if (selectedFriends.length === 0) {
+    showNotification('Select at least one friend', 'warning');
+    return;
+  }
+  
+  try {
+    const response = await fetch(`/api/servers/${currentServer}/members`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userIds: selectedFriends })
+    });
+    
+    if (response.ok) {
+      showNotification(`Added ${selectedFriends.length} member(s) to server`, 'success');
+      closeModal('add-server-members-modal');
+      
+      // Reload server members
+      const membersResponse = await fetch(`/api/servers/${currentServer}/members`);
+      if (membersResponse.ok) {
+        serverMembers = await membersResponse.json();
+      }
+    }
+  } catch (error) {
+    console.error('Error adding members:', error);
+    showNotification('Failed to add members', 'error');
   }
 }
 

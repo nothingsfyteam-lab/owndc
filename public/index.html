@@ -135,7 +135,10 @@
           </div>
         </div>
         <div class="user-actions">
-          <button onclick="showAddFriend()" title="Add Friend"><i class="fas fa-user-plus"></i></button>
+          <button onclick="showAddFriend()" title="Add Friend" style="position: relative;">
+            <i class="fas fa-user-plus"></i>
+            <span id="friend-request-badge" class="notification-badge" style="display: none;"></span>
+          </button>
           <button onclick="showCreateGroup()" title="Create Group"><i class="fas fa-users"></i></button>
           <button onclick="showEditProfile()" title="Edit Profile"><i class="fas fa-cog"></i></button>
           <button onclick="logout()" title="Logout"><i class="fas fa-sign-out-alt"></i></button>
@@ -359,10 +362,83 @@
         <button class="modal-close" onclick="closeModal('server-members-modal')"><i class="fas fa-times"></i></button>
       </div>
       <div class="modal-form">
+        <button class="modal-btn" onclick="showAddServerMembers()" style="margin-bottom: 16px; background-color: var(--success);">Invite Friends</button>
         <div id="server-members-list" class="server-members-list">
           <!-- Members will be loaded here -->
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- Add Server Members Modal -->
+  <div id="add-server-members-modal" class="modal hidden">
+    <div class="modal-content" style="max-width: 500px;">
+      <div class="modal-header">
+        <h3>INVITE FRIENDS TO SERVER</h3>
+        <button class="modal-close" onclick="closeModal('add-server-members-modal')"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="modal-form">
+        <div class="form-group">
+          <label>SELECT FRIENDS</label>
+          <div id="server-friend-selector-list" class="friend-selector-list">
+            <!-- Friends list with checkboxes -->
+          </div>
+        </div>
+        <button class="modal-btn" onclick="addMembersToServer()">Add Selected Friends</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Direct Call Interface -->
+  <div id="call-interface" class="call-interface hidden">
+    <div class="call-header">
+      <div class="call-info">
+        <div class="call-avatar" id="call-avatar">?</div>
+        <div class="call-details">
+          <h3 id="call-name">Loading...</h3>
+          <p id="call-duration">00:00</p>
+        </div>
+      </div>
+      <button class="call-close" onclick="endDirectCall()"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="call-video-container">
+      <div class="video-grid" id="video-grid">
+        <div class="local-video-wrapper">
+          <video id="local-video-direct" autoplay muted playsinline style="width: 100%; height: 100%; border-radius: 8px; background: black;"></video>
+          <div class="video-label">You</div>
+        </div>
+        <div class="remote-video-wrapper" id="remote-video-wrapper">
+          <video id="remote-video-direct" autoplay playsinline style="width: 100%; height: 100%; border-radius: 8px; background: black;"></video>
+          <div class="video-label" id="remote-video-label">Call in progress...</div>
+        </div>
+      </div>
+    </div>
+    <div class="call-controls">
+      <button class="call-btn" id="direct-mute-btn" onclick="toggleDirectCallMute()" title="Mute">
+        <i class="fas fa-microphone"></i>
+      </button>
+      <button class="call-btn" id="direct-video-btn" onclick="toggleDirectCallVideo()" title="Camera">
+        <i class="fas fa-video"></i>
+      </button>
+      <button class="call-btn end" onclick="endDirectCall()" title="End Call">
+        <i class="fas fa-phone-slash"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- Incoming Call Modal -->
+  <div id="incoming-call-modal" class="modal hidden">
+    <div class="modal-content" style="max-width: 350px; text-align: center; padding: 24px;">
+      <div class="incoming-call-avatar" id="incoming-call-avatar" style="width: 80px; height: 80px; border-radius: 50%; background: var(--primary); margin: 0 auto 16px; display: flex; align-items: center; justify-content: center; font-size: 32px; font-weight: bold; color: white;">?</div>
+      <h3 id="incoming-call-name" style="margin-bottom: 8px;">Incoming Call...</h3>
+      <p id="incoming-call-type" style="color: var(--text-secondary); margin-bottom: 24px;">Voice Call</p>
+      <div style="display: flex; gap: 16px; justify-content: center;">
+        <button onclick="acceptIncomingCall()" style="width: 60px; height: 60px; border-radius: 50%; background: var(--success); color: white; border: none; cursor: pointer; font-size: 24px;"><i class="fas fa-phone"></i></button>
+        <button onclick="rejectIncomingCall()" style="width: 60px; height: 60px; border-radius: 50%; background: var(--danger); color: white; border: none; cursor: pointer; font-size: 24px;"><i class="fas fa-phone-slash"></i></button>
+      </div>
+      <audio id="ringtone-audio" loop>
+        <source src="https://assets.mixkit.co/sfx/preview/mixkit-waiting-ring-tone-1354.mp3" type="audio/mpeg">
+      </audio>
     </div>
   </div>
 
