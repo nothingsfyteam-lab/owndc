@@ -1,5 +1,6 @@
 const express = require('express');
 const session = require('express-session');
+const SQLiteStore = require('connect-sqlite3')(session);
 const path = require('path');
 const http = require('http');
 const os = require('os');
@@ -48,11 +49,12 @@ async function startServer() {
     app.use(express.static(path.join(__dirname, 'public')));
 
     app.use(session({
+      store: new SQLiteStore({ db: 'sessions.sqlite', dir: __dirname }),
       secret: process.env.SESSION_SECRET || 'owndc-secret-key-change-in-production',
       resave: false,
       saveUninitialized: false,
       cookie: {
-        secure: process.env.NODE_ENV === 'production',
+        secure: false, // Only true in production with HTTPS
         httpOnly: true,
         sameSite: 'lax',
         maxAge: 24 * 60 * 60 * 1000

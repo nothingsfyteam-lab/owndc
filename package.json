@@ -12,10 +12,12 @@
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
-    "sqlite3": "^5.1.7",
+    "connect-sqlite3": "^0.9.16",
+    "cookie-parser": "^1.4.7",
     "express": "^4.18.2",
     "express-session": "^1.17.3",
     "socket.io": "^4.6.1",
+    "sqlite3": "^5.1.7",
     "uuid": "^9.0.0"
   },
   "devDependencies": {
