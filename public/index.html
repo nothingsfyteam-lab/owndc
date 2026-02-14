@@ -25,12 +25,12 @@
         
         <div class="form-group">
           <label for="login-email">EMAIL</label>
-          <input type="email" id="login-email" placeholder="Enter your email">
+          <input type="email" id="login-email" placeholder="Enter your email" onkeypress="handleEnterKey(event, 'login')">
         </div>
         
         <div class="form-group">
           <label for="login-password">PASSWORD</label>
-          <input type="password" id="login-password" placeholder="Enter your password">
+          <input type="password" id="login-password" placeholder="Enter your password" onkeypress="handleEnterKey(event, 'login')">
         </div>
         
         <button class="auth-btn" onclick="handleLogin()">Log In</button>
@@ -48,17 +48,17 @@
         
         <div class="form-group">
           <label for="register-username">USERNAME</label>
-          <input type="text" id="register-username" placeholder="Choose a username">
+          <input type="text" id="register-username" placeholder="Choose a username" onkeypress="handleEnterKey(event, 'register')">
         </div>
         
         <div class="form-group">
           <label for="register-email">EMAIL</label>
-          <input type="email" id="register-email" placeholder="Enter your email">
+          <input type="email" id="register-email" placeholder="Enter your email" onkeypress="handleEnterKey(event, 'register')">
         </div>
         
         <div class="form-group">
           <label for="register-password">PASSWORD</label>
-          <input type="password" id="register-password" placeholder="Create a password">
+          <input type="password" id="register-password" placeholder="Create a password" onkeypress="handleEnterKey(event, 'register')">
         </div>
         
         <button class="auth-btn" onclick="handleRegister()">Continue</button>
@@ -137,6 +137,7 @@
         <div class="user-actions">
           <button onclick="showAddFriend()" title="Add Friend"><i class="fas fa-user-plus"></i></button>
           <button onclick="showCreateGroup()" title="Create Group"><i class="fas fa-users"></i></button>
+          <button onclick="showEditProfile()" title="Edit Profile"><i class="fas fa-cog"></i></button>
           <button onclick="logout()" title="Logout"><i class="fas fa-sign-out-alt"></i></button>
         </div>
       </div>
@@ -154,7 +155,7 @@
           <button class="header-btn" id="voice-join-btn" onclick="toggleVoiceChannel()" style="display: none;">
             <i class="fas fa-phone"></i> Join Voice
           </button>
-          <button class="header-btn" onclick="showChannelMembers()">
+          <button class="header-btn" onclick="showServerMembers()">
             <i class="fas fa-users"></i> Members
           </button>
         </div>
@@ -175,7 +176,7 @@
         <div class="typing-indicator" id="typing-indicator"></div>
         <div class="message-input-wrapper">
           <button class="input-btn" title="Add attachment"><i class="fas fa-plus-circle"></i></button>
-          <input type="text" id="message-input" placeholder="Message #general" onkeypress="handleMessageKeypress(event)" oninput="handleTyping()">
+          <input type="text" id="message-input" placeholder="Message #general" onkeydown="if(event.key==='Enter'){sendMessage();}" oninput="handleTyping()">
           <button class="input-btn" onclick="sendMessage()"><i class="fas fa-paper-plane"></i></button>
         </div>
       </div>
@@ -218,7 +219,7 @@
       </div>
       <p class="modal-desc">You can add friends with their username.</p>
       <div class="modal-input-group">
-        <input type="text" id="friend-username" placeholder="Enter a username">
+        <input type="text" id="friend-username" placeholder="Enter a username" onkeypress="handleEnterKey(event, 'addFriend')">
         <button onclick="sendFriendRequest()">Send Friend Request</button>
       </div>
       <div id="friend-requests-list" class="friend-requests-list"></div>
@@ -248,7 +249,7 @@
         </div>
         <div class="form-group">
           <label>CHANNEL NAME</label>
-          <input type="text" id="channel-name" placeholder="new-channel">
+          <input type="text" id="channel-name" placeholder="new-channel" onkeypress="handleEnterKey(event, 'createChannel')">
         </div>
         <button class="modal-btn" onclick="createChannel()">Create Channel</button>
       </div>
@@ -257,17 +258,172 @@
 
   <!-- Create Group Modal -->
   <div id="create-group-modal" class="modal hidden">
-    <div class="modal-content">
+    <div class="modal-content" style="max-width: 500px;">
       <div class="modal-header">
-        <h3>CREATE GROUP</h3>
+        <h3>CREATE GROUP DM</h3>
         <button class="modal-close" onclick="closeModal('create-group-modal')"><i class="fas fa-times"></i></button>
       </div>
       <div class="modal-form">
         <div class="form-group">
           <label>GROUP NAME</label>
-          <input type="text" id="group-name" placeholder="My Group">
+          <input type="text" id="group-name" placeholder="My Group" onkeypress="handleEnterKey(event, 'createGroup')">
+        </div>
+        <div class="form-group">
+          <label>SELECT FRIENDS</label>
+          <div id="friend-selector-list" class="friend-selector-list">
+            <!-- Friends will be loaded here -->
+          </div>
         </div>
         <button class="modal-btn" onclick="createGroup()">Create Group</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create Server Modal -->
+  <div id="create-server-modal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>CREATE YOUR SERVER</h3>
+        <button class="modal-close" onclick="closeModal('create-server-modal')"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="modal-form">
+        <p class="modal-desc">Give your new server a personality with a name. You can always change it later.</p>
+        <div class="form-group">
+          <label>SERVER NAME</label>
+          <input type="text" id="server-name" placeholder="My Awesome Server" onkeypress="handleEnterKey(event, 'createServer')">
+        </div>
+        <button class="modal-btn" onclick="createServer()">Create Server</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Join Server Modal -->
+  <div id="join-server-modal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>JOIN A SERVER</h3>
+        <button class="modal-close" onclick="closeModal('join-server-modal')"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="modal-form">
+        <p class="modal-desc">Enter an invite link or code below to join an existing server.</p>
+        <div class="form-group">
+          <label>INVITE CODE</label>
+          <input type="text" id="invite-code" placeholder="ABC123" onkeypress="handleEnterKey(event, 'joinServer')">
+        </div>
+        <button class="modal-btn" onclick="joinServer()">Join Server</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Video Call Overlay -->
+  <div id="video-overlay" class="video-overlay hidden">
+    <div class="video-container">
+      <div class="video-header">
+        <h3><i class="fas fa-video"></i> Video Call</h3>
+        <button class="video-close" onclick="leaveVideoCall()">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+      <div class="video-grid" id="video-grid">
+        <div class="video-item local-video">
+          <video id="local-video" autoplay muted playsinline></video>
+          <span class="video-label">You</span>
+        </div>
+      </div>
+      <div class="video-controls">
+        <button class="video-btn" id="video-mute-btn" onclick="toggleMute()">
+          <i class="fas fa-microphone"></i>
+          <span>Mute</span>
+        </button>
+        <button class="video-btn" id="video-camera-btn" onclick="toggleVideo()">
+          <i class="fas fa-video"></i>
+          <span>Video</span>
+        </button>
+        <button class="video-btn" id="screen-share-btn" onclick="toggleScreenShare()">
+          <i class="fas fa-desktop"></i>
+          <span>Screen</span>
+        </button>
+        <button class="video-btn disconnect" onclick="leaveVideoCall()">
+          <i class="fas fa-phone-slash"></i>
+          <span>End</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Server Members Modal -->
+  <div id="server-members-modal" class="modal hidden">
+    <div class="modal-content" style="max-width: 500px;">
+      <div class="modal-header">
+        <h3>SERVER MEMBERS</h3>
+        <button class="modal-close" onclick="closeModal('server-members-modal')"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="modal-form">
+        <div id="server-members-list" class="server-members-list">
+          <!-- Members will be loaded here -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit Profile Modal -->
+  <div id="edit-profile-modal" class="modal hidden">
+    <div class="modal-content" style="max-width: 500px;">
+      <div class="modal-header">
+        <h3>EDIT PROFILE</h3>
+        <button class="modal-close" onclick="closeModal('edit-profile-modal')"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="modal-form">
+        <div class="form-group">
+          <label>USERNAME</label>
+          <input type="text" id="profile-username" placeholder="Your username">
+        </div>
+        <div class="form-group">
+          <label>EMAIL</label>
+          <input type="email" id="profile-email" placeholder="Your email">
+        </div>
+        <div class="form-group">
+          <label>BIO</label>
+          <textarea id="profile-bio" rows="3" placeholder="Tell us about yourself..."></textarea>
+        </div>
+        <div class="form-group">
+          <label>PROFILE PICTURE URL</label>
+          <input type="text" id="profile-avatar" placeholder="https://example.com/avatar.png">
+        </div>
+        <div class="form-group">
+          <label>BANNER URL</label>
+          <input type="text" id="profile-banner" placeholder="https://example.com/banner.png">
+        </div>
+        <div class="form-group">
+          <label>CUSTOM STATUS</label>
+          <input type="text" id="profile-status" placeholder="What's on your mind?" maxlength="100">
+        </div>
+        <button class="modal-btn" onclick="saveProfile()">Save Changes</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Change Password Modal -->
+  <div id="change-password-modal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>CHANGE PASSWORD</h3>
+        <button class="modal-close" onclick="closeModal('change-password-modal')"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="modal-form">
+        <div class="form-group">
+          <label>CURRENT PASSWORD</label>
+          <input type="password" id="current-password" placeholder="Enter current password">
+        </div>
+        <div class="form-group">
+          <label>NEW PASSWORD</label>
+          <input type="password" id="new-password" placeholder="Enter new password">
+        </div>
+        <div class="form-group">
+          <label>CONFIRM NEW PASSWORD</label>
+          <input type="password" id="confirm-password" placeholder="Confirm new password">
+        </div>
+        <button class="modal-btn" onclick="changePassword()">Change Password</button>
       </div>
     </div>
   </div>

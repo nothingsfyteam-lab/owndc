@@ -11,11 +11,9 @@ function requireAuth(req, res, next) {
   next();
 }
 
-// Helper function to promisify db operations
 function dbGet(query, params = []) {
   return new Promise((resolve, reject) => {
-    const db = getDb();
-    db.get(query, params, (err, row) => {
+    getDb().get(query, params, (err, row) => {
       if (err) reject(err);
       else resolve(row);
     });
@@ -24,8 +22,7 @@ function dbGet(query, params = []) {
 
 function dbAll(query, params = []) {
   return new Promise((resolve, reject) => {
-    const db = getDb();
-    db.all(query, params, (err, rows) => {
+    getDb().all(query, params, (err, rows) => {
       if (err) reject(err);
       else resolve(rows);
     });
@@ -34,42 +31,27 @@ function dbAll(query, params = []) {
 
 function dbRun(query, params = []) {
   return new Promise((resolve, reject) => {
-    const db = getDb();
-    db.run(query, params, function(err) {
+    getDb().run(query, params, function(err) {
       if (err) reject(err);
       else resolve({ id: this.lastID, changes: this.changes });
     });
   });
 }
 
+// Get all channels (for testing)
 router.get('/', requireAuth, async (req, res) => {
   try {
     const channels = await dbAll(`
-      SELECT 
-        c.id,
-        c.name,
-        c.type,
-        c.owner_id,
-        c.created_at,
-        u.username as owner_username,
-        COUNT(cm.user_id) as member_count
+      SELECT c.*, s.name as server_name, u.username as owner_username
       FROM channels c
-      JOIN users u ON c.owner_id = u.id
-      LEFT JOIN channel_members cm ON c.id = cm.channel_id
-      GROUP BY c.id
+      LEFT JOIN servers s ON c.server_id = s.id
+      LEFT JOIN users u ON c.owner_id = u.id
       ORDER BY c.created_at DESC
     `);
 
-    const myChannels = await dbAll(`
-      SELECT c.id, c.name, c.type
-      FROM channels c
-      JOIN channel_members cm ON c.id = cm.channel_id
-      WHERE cm.user_id = ?
-    `, [req.session.userId]);
-
     res.json({
       all: channels,
-      mine: myChannels
+      mine: channels.filter(c => c.owner_id === req.session.userId)
     });
   } catch (error) {
     console.error('Get channels error:', error);
@@ -77,24 +59,32 @@ router.get('/', requireAuth, async (req, res) => {
   }
 });
 
+// Create channel
 router.post('/', requireAuth, async (req, res) => {
   try {
-    const { name, type = 'text' } = req.body;
+    const { name, type = 'text', serverId } = req.body;
     
     if (!name || name.trim().length === 0) {
       return res.status(400).json({ error: 'Channel name is required' });
     }
 
+    if (!serverId) {
+      return res.status(400).json({ error: 'Server ID is required' });
+    }
+
+    // Check if user is member of server
+    const isMember = await dbGet('SELECT * FROM server_members WHERE server_id = ? AND user_id = ?',
+      [serverId, req.session.userId]);
+
+    if (!isMember) {
+      return res.status(403).json({ error: 'Not a member of this server' });
+    }
+
     const channelId = uuidv4();
 
     await dbRun(
-      'INSERT INTO channels (id, name, type, owner_id) VALUES (?, ?, ?, ?)',
-      [channelId, name.trim(), type, req.session.userId]
-    );
-
-    await dbRun(
-      'INSERT INTO channel_members (id, channel_id, user_id) VALUES (?, ?, ?)',
-      [uuidv4(), channelId, req.session.userId]
+      'INSERT INTO channels (id, server_id, name, type, owner_id) VALUES (?, ?, ?, ?, ?)',
+      [channelId, serverId, name.trim(), type, req.session.userId]
     );
 
     const channel = await dbGet(`
@@ -111,16 +101,25 @@ router.post('/', requireAuth, async (req, res) => {
   }
 });
 
+// Get channel messages
 router.get('/:id/messages', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const { limit = 50, offset = 0 } = req.query;
 
-    const isMember = await dbGet('SELECT * FROM channel_members WHERE channel_id = ? AND user_id = ?',
-      [id, req.session.userId]);
+    const channel = await dbGet('SELECT * FROM channels WHERE id = ?', [id]);
+    if (!channel) {
+      return res.status(404).json({ error: 'Channel not found' });
+    }
 
-    if (!isMember) {
-      return res.status(403).json({ error: 'Not a member of this channel' });
+    // Check server membership for server channels
+    if (channel.server_id) {
+      const isMember = await dbGet('SELECT * FROM server_members WHERE server_id = ? AND user_id = ?',
+        [channel.server_id, req.session.userId]);
+
+      if (!isMember) {
+        return res.status(403).json({ error: 'Not a member of this server' });
+      }
     }
 
     const messages = await dbAll(`
@@ -145,6 +144,7 @@ router.get('/:id/messages', requireAuth, async (req, res) => {
   }
 });
 
+// Join channel
 router.post('/:id/join', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
@@ -154,17 +154,14 @@ router.post('/:id/join', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'Channel not found' });
     }
 
-    const existing = await dbGet('SELECT * FROM channel_members WHERE channel_id = ? AND user_id = ?',
-      [id, req.session.userId]);
+    if (channel.server_id) {
+      const isMember = await dbGet('SELECT * FROM server_members WHERE server_id = ? AND user_id = ?',
+        [channel.server_id, req.session.userId]);
 
-    if (existing) {
-      return res.status(409).json({ error: 'Already a member' });
+      if (!isMember) {
+        return res.status(403).json({ error: 'Not a member of this server' });
+      }
     }
-
-    await dbRun(
-      'INSERT INTO channel_members (id, channel_id, user_id) VALUES (?, ?, ?)',
-      [uuidv4(), id, req.session.userId]
-    );
 
     res.json({ message: 'Joined channel successfully' });
   } catch (error) {
@@ -173,6 +170,7 @@ router.post('/:id/join', requireAuth, async (req, res) => {
   }
 });
 
+// Leave channel
 router.post('/:id/leave', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
@@ -191,6 +189,7 @@ router.post('/:id/leave', requireAuth, async (req, res) => {
   }
 });
 
+// Delete channel (owner only)
 router.delete('/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
@@ -200,8 +199,14 @@ router.delete('/:id', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'Channel not found' });
     }
 
-    if (channel.owner_id !== req.session.userId) {
-      return res.status(403).json({ error: 'Only the owner can delete this channel' });
+    // Check if user is server owner or channel creator
+    if (channel.server_id) {
+      const server = await dbGet('SELECT * FROM servers WHERE id = ?', [channel.server_id]);
+      if (server.owner_id !== req.session.userId && channel.owner_id !== req.session.userId) {
+        return res.status(403).json({ error: 'Only server owner or channel creator can delete' });
+      }
+    } else if (channel.owner_id !== req.session.userId) {
+      return res.status(403).json({ error: 'Only channel creator can delete' });
     }
 
     await dbRun('DELETE FROM channels WHERE id = ?', [id]);

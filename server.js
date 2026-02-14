@@ -15,7 +15,6 @@ const io = new Server(server, {
   }
 });
 
-// Initialize database and then start server
 async function startServer() {
   try {
     await initDatabase();
@@ -34,17 +33,28 @@ async function startServer() {
       }
     }));
 
+    // Routes
     const authRoutes = require('./routes/auth');
     const friendsRoutes = require('./routes/friends');
+    const serversRoutes = require('./routes/servers');
     const channelsRoutes = require('./routes/channels');
     const messagesRoutes = require('./routes/messages');
     const groupsRoutes = require('./routes/groups');
+    const reactionsRoutes = require('./routes/reactions');
+    const threadsRoutes = require('./routes/threads');
+    const uploadsRoutes = require('./routes/uploads');
+    const usersRoutes = require('./routes/users');
 
     app.use('/api/auth', authRoutes);
     app.use('/api/friends', friendsRoutes);
+    app.use('/api/servers', serversRoutes);
     app.use('/api/channels', channelsRoutes);
     app.use('/api/messages', messagesRoutes);
     app.use('/api/groups', groupsRoutes);
+    app.use('/api/reactions', reactionsRoutes);
+    app.use('/api/threads', threadsRoutes);
+    app.use('/api/uploads', uploadsRoutes);
+    app.use('/api/users', usersRoutes);
 
     app.get('/', (req, res) => {
       res.sendFile(path.join(__dirname, 'public', 'index.html'));
