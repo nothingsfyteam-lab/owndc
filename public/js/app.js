@@ -1943,6 +1943,9 @@ async function acceptIncomingCall() {
   if (!currentCallId || !currentDirectCall) return;
   
   try {
+    // Close the incoming call modal immediately
+    closeAllModals();
+    
     // Request microphone
     localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     
@@ -2044,13 +2047,6 @@ async function initiateDirectCall(friendId, friendName, friendAvatar, callType =
     });
     
     showCallInterface(currentDirectCall, callType);
-    
-    // Show video button only for video calls
-    const videoBtnEl = document.getElementById('direct-video-btn');
-    if (videoBtnEl) {
-      videoBtnEl.style.display = callType === 'video' ? 'flex' : 'none';
-    }
-    
     showNotification(`Calling ${friendName}...`, 'info');
     
   } catch (error) {
@@ -2066,7 +2062,9 @@ function createDirectCallPeerConnection(remoteUserId) {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' }
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:numb.viagenie.ca:3478' },
+      { urls: 'stun:stun.stunprotocol.org:3478' }
     ]
   });
   
@@ -2080,9 +2078,26 @@ function createDirectCallPeerConnection(remoteUserId) {
   // Handle remote stream
   pc.ontrack = (event) => {
     console.log('Remote track received:', event.track.kind);
-    const remoteVideo = document.getElementById('remote-video-direct');
-    if (remoteVideo && event.streams[0]) {
-      remoteVideo.srcObject = event.streams[0];
+    const remoteStream = event.streams[0];
+    
+    if (event.track.kind === 'audio') {
+      // Handle audio track
+      let remoteAudio = document.getElementById('remote-audio-direct');
+      if (!remoteAudio) {
+        remoteAudio = document.createElement('audio');
+        remoteAudio.id = 'remote-audio-direct';
+        remoteAudio.autoplay = true;
+        remoteAudio.playsInline = true;
+        document.body.appendChild(remoteAudio);
+      }
+      remoteAudio.srcObject = remoteStream;
+      remoteAudio.play().catch(e => console.log('Audio play error:', e));
+    } else if (event.track.kind === 'video') {
+      // Handle video track
+      const remoteVideo = document.getElementById('remote-video-direct');
+      if (remoteVideo) {
+        remoteVideo.srcObject = remoteStream;
+      }
     }
   };
   
@@ -2109,29 +2124,48 @@ function createDirectCallPeerConnection(remoteUserId) {
 }
 
 function showCallInterface(user, callType = 'voice') {
-  const callInterface = document.getElementById('call-interface');
-  if (callInterface) {
-    callInterface.classList.remove('hidden');
-  }
+  // Hide both interfaces first
+  const voiceInterface = document.getElementById('voice-call-interface');
+  const videoInterface = document.getElementById('video-call-interface');
   
-  document.getElementById('call-name').textContent = user.username;
+  if (voiceInterface) voiceInterface.classList.add('hidden');
+  if (videoInterface) videoInterface.classList.add('hidden');
   
-  const avatarEl = document.getElementById('call-avatar');
-  if (user.avatar) {
-    avatarEl.innerHTML = `<img src="${user.avatar}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;">`;
-  } else {
-    avatarEl.innerHTML = user.username.charAt(0).toUpperCase();
-  }
-  avatarEl.style.background = 'var(--primary)';
-  
-  const typeEl = document.getElementById('call-type-label');
-  if (typeEl) {
-    typeEl.textContent = callType === 'video' ? 'Video Call' : 'Voice Call';
-  }
-  
-  const localVideo = document.getElementById('local-video-direct');
-  if (localVideo && localStream) {
-    localVideo.srcObject = localStream;
+  if (callType === 'voice') {
+    // Show voice call interface
+    if (voiceInterface) voiceInterface.classList.remove('hidden');
+    
+    const avatarEl = document.getElementById('voice-call-avatar');
+    const avatarLargeEl = document.getElementById('voice-avatar-large');
+    
+    if (user.avatar) {
+      avatarEl.innerHTML = `<img src="${user.avatar}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;">`;
+      avatarLargeEl.innerHTML = `<img src="${user.avatar}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;">`;
+    } else {
+      avatarEl.innerHTML = user.username.charAt(0).toUpperCase();
+      avatarLargeEl.innerHTML = user.username.charAt(0).toUpperCase();
+    }
+    
+    document.getElementById('voice-call-name').textContent = user.username;
+    document.getElementById('voice-call-name-large').textContent = user.username;
+    
+  } else if (callType === 'video') {
+    // Show video call interface
+    if (videoInterface) videoInterface.classList.remove('hidden');
+    
+    const avatarEl = document.getElementById('video-call-avatar');
+    if (user.avatar) {
+      avatarEl.innerHTML = `<img src="${user.avatar}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;">`;
+    } else {
+      avatarEl.innerHTML = user.username.charAt(0).toUpperCase();
+    }
+    
+    document.getElementById('video-call-name').textContent = user.username;
+    
+    const localVideo = document.getElementById('local-video-direct');
+    if (localVideo && localStream) {
+      localVideo.srcObject = localStream;
+    }
   }
 }
 
@@ -2161,12 +2195,19 @@ function endDirectCall() {
       ringtonAudio.pause();
       ringtonAudio.currentTime = 0;
     }
+    
+    const remoteAudio = document.getElementById('remote-audio-direct');
+    if (remoteAudio) {
+      remoteAudio.srcObject = null;
+      remoteAudio.pause();
+    }
   } catch (e) {}
   
-  const callInterface = document.getElementById('call-interface');
-  if (callInterface) {
-    callInterface.classList.add('hidden');
-  }
+  // Hide both call interfaces
+  const voiceInterface = document.getElementById('voice-call-interface');
+  const videoInterface = document.getElementById('video-call-interface');
+  if (voiceInterface) voiceInterface.classList.add('hidden');
+  if (videoInterface) videoInterface.classList.add('hidden');
   
   currentCallId = null;
   currentDirectCall = null;
@@ -2178,7 +2219,6 @@ function endDirectCall() {
 
 function startCallTimer() {
   callStartTime = Date.now();
-  const durationElement = document.getElementById('call-duration');
   
   if (callTimer) clearInterval(callTimer);
   
@@ -2187,9 +2227,14 @@ function startCallTimer() {
       const elapsed = Math.floor((Date.now() - callStartTime) / 1000);
       const minutes = Math.floor(elapsed / 60);
       const seconds = elapsed % 60;
-      if (durationElement) {
-        durationElement.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-      }
+      const timeStr = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+      
+      // Update both voice and video call durations
+      const voiceDuration = document.getElementById('voice-call-duration');
+      const videoDuration = document.getElementById('video-call-duration');
+      
+      if (voiceDuration) voiceDuration.textContent = timeStr;
+      if (videoDuration) videoDuration.textContent = timeStr;
     }
   }, 1000);
 }
@@ -2201,8 +2246,12 @@ function toggleDirectCallMute() {
       track.enabled = !directCallMuted;
     });
     
-    const btn = document.getElementById('direct-mute-btn');
-    if (btn) {
+    // Update both buttons
+    const voiceBtn = document.getElementById('voice-mute-btn');
+    const videoBtn = document.getElementById('video-mute-btn');
+    
+    const buttons = [voiceBtn, videoBtn].filter(btn => btn);
+    buttons.forEach(btn => {
       if (directCallMuted) {
         btn.style.background = 'var(--danger)';
         btn.innerHTML = '<i class="fas fa-microphone-slash"></i>';
@@ -2210,7 +2259,7 @@ function toggleDirectCallMute() {
         btn.style.background = '';
         btn.innerHTML = '<i class="fas fa-microphone"></i>';
       }
-    }
+    });
   }
 }
 
@@ -2246,7 +2295,7 @@ function toggleDirectCallVideo() {
       }
     }
     
-    const btn = document.getElementById('direct-video-btn');
+    const btn = document.getElementById('video-camera-btn');
     if (btn) {
       if (directCallVideoOn) {
         btn.style.background = 'var(--success)';

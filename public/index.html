@@ -389,15 +389,43 @@
     </div>
   </div>
 
-  <!-- Direct Call Interface -->
-  <div id="call-interface" class="call-interface hidden">
+  <!-- Voice Call Interface -->
+  <div id="voice-call-interface" class="call-interface hidden">
     <div class="call-header">
       <div class="call-info">
-        <div class="call-avatar" id="call-avatar">?</div>
+        <div class="call-avatar" id="voice-call-avatar">?</div>
         <div class="call-details">
-          <h3 id="call-name">Loading...</h3>
-          <p id="call-type-label" style="color: var(--success); font-size: 12px; margin: 4px 0 0 0;">Voice Call</p>
-          <p id="call-duration" style="margin: 0;">00:00</p>
+          <h3 id="voice-call-name">Loading...</h3>
+          <p id="voice-call-duration" style="margin: 0;">00:00</p>
+        </div>
+      </div>
+      <button class="call-close" onclick="endDirectCall()"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="call-voice-container">
+      <div class="voice-call-content">
+        <div class="voice-avatar-large" id="voice-avatar-large">?</div>
+        <h2 id="voice-call-name-large">Calling...</h2>
+        <p id="voice-status" style="color: var(--text-secondary); margin: 12px 0 0 0;">Connected</p>
+      </div>
+    </div>
+    <div class="call-controls">
+      <button class="call-btn" id="voice-mute-btn" onclick="toggleDirectCallMute()" title="Mute Microphone">
+        <i class="fas fa-microphone"></i>
+      </button>
+      <button class="call-btn end" onclick="endDirectCall()" title="End Call">
+        <i class="fas fa-phone-slash"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- Video Call Interface -->
+  <div id="video-call-interface" class="call-interface hidden">
+    <div class="call-header">
+      <div class="call-info">
+        <div class="call-avatar" id="video-call-avatar">?</div>
+        <div class="call-details">
+          <h3 id="video-call-name">Loading...</h3>
+          <p id="video-call-duration" style="margin: 0;">00:00</p>
         </div>
       </div>
       <button class="call-close" onclick="endDirectCall()"><i class="fas fa-times"></i></button>
@@ -415,10 +443,10 @@
       </div>
     </div>
     <div class="call-controls">
-      <button class="call-btn" id="direct-mute-btn" onclick="toggleDirectCallMute()" title="Mute Microphone">
+      <button class="call-btn" id="video-mute-btn" onclick="toggleDirectCallMute()" title="Mute Microphone">
         <i class="fas fa-microphone"></i>
       </button>
-      <button class="call-btn" id="direct-video-btn" onclick="toggleDirectCallVideo()" title="Camera" style="display: none;">
+      <button class="call-btn" id="video-camera-btn" onclick="toggleDirectCallVideo()" title="Camera">
         <i class="fas fa-video"></i>
       </button>
       <button class="call-btn end" onclick="endDirectCall()" title="End Call">

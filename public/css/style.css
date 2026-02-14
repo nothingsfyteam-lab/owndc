@@ -1619,7 +1619,6 @@ body {
   left: 0;
   right: 0;
   bottom: 0;
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
   z-index: 1000;
   display: flex;
   flex-direction: column;
@@ -1629,6 +1628,14 @@ body {
 
 .call-interface.hidden {
   display: none;
+}
+
+#voice-call-interface {
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+}
+
+#video-call-interface {
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
 }
 
 .call-header {
@@ -1676,7 +1683,7 @@ body {
 
 .call-details h3 {
   margin: 0;
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 600;
   letter-spacing: 0.5px;
 }
@@ -1688,7 +1695,8 @@ body {
   font-weight: 500;
 }
 
-#call-duration {
+#voice-call-duration,
+#video-call-duration {
   font-size: 16px;
   font-weight: 600;
   color: #3BA55D;
@@ -1711,6 +1719,57 @@ body {
   transform: scale(1.1);
 }
 
+/* Voice Call Container */
+.call-voice-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  overflow: hidden;
+}
+
+.voice-call-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  text-align: center;
+}
+
+.voice-avatar-large {
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #5865F2 0%, #4752C4 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 64px;
+  box-shadow: 0 8px 32px rgba(88, 101, 242, 0.3);
+  overflow: hidden;
+}
+
+.voice-avatar-large img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.voice-call-content h2 {
+  margin: 0;
+  font-size: 32px;
+  font-weight: 600;
+}
+
+.voice-call-content p {
+  margin: 0;
+  font-size: 14px;
+}
+
+/* Video Call Container */
 .call-video-container {
   flex: 1;
   display: flex;
@@ -1760,6 +1819,7 @@ body {
   backdrop-filter: blur(10px);
 }
 
+/* Call Controls */
 .call-controls {
   display: flex;
   align-items: center;
