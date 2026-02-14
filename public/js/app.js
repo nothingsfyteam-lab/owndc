@@ -433,20 +433,27 @@ function initializeSocket() {
   socket.on('call-offer', async (data) => {
     const { callId, userId, offer } = data;
     try {
+      console.log('Received call-offer from:', userId);
       // Store the offer for when user accepts
       window.pendingCallOffer = { callId, userId, offer };
       
       // If localStream is already available, process immediately
       if (localStream && !directCallPC) {
+        console.log('Local stream already available, creating peer connection');
         directCallPC = createDirectCallPeerConnection(userId);
         await directCallPC.setRemoteDescription(new RTCSessionDescription(offer));
-        const answer = await directCallPC.createAnswer();
+        const answer = await directCallPC.createAnswer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: true
+        });
         await directCallPC.setLocalDescription(answer);
         socket.emit('call-answer', {
           callId,
           targetUserId: userId,
           answer: answer
         });
+      } else {
+        console.log('Waiting for user to accept before creating peer connection');
       }
     } catch (error) {
       console.error('Error handling call offer:', error);
@@ -455,12 +462,17 @@ function initializeSocket() {
 
   socket.on('call-answer', async (data) => {
     const { callId, userId, answer } = data;
+    console.log('Received call-answer from:', userId);
     if (directCallPC) {
       try {
+        console.log('Setting remote description for answer');
         await directCallPC.setRemoteDescription(new RTCSessionDescription(answer));
+        console.log('Remote description set successfully');
       } catch (error) {
         console.error('Error handling call answer:', error);
       }
+    } else {
+      console.warn('No peer connection when receiving answer');
     }
   });
 
@@ -1943,6 +1955,8 @@ async function acceptIncomingCall() {
   if (!currentCallId || !currentDirectCall) return;
   
   try {
+    console.log('Accepting incoming call:', currentCallId);
+    
     // Close the incoming call modal immediately
     closeAllModals();
     
@@ -1951,11 +1965,29 @@ async function acceptIncomingCall() {
     
     // Request microphone and optionally camera
     const constraints = {
-      audio: true,
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      },
       video: isVideoCall ? { width: 1280, height: 720 } : false
     };
     
+    console.log('Getting user media for call acceptance');
     localStream = await navigator.mediaDevices.getUserMedia(constraints);
+    
+    console.log('Got local stream:', localStream.getTracks().map(t => `${t.kind}(${t.enabled})`));
+    
+    // Verify audio track is present and enabled
+    const audioTracks = localStream.getAudioTracks();
+    if (audioTracks.length === 0) {
+      throw new Error('No audio track in local stream');
+    }
+    audioTracks.forEach(track => {
+      if (!track.enabled) {
+        track.enabled = true;
+      }
+    });
     
     // Store video stream if it's a video call
     if (isVideoCall) {
@@ -1964,6 +1996,7 @@ async function acceptIncomingCall() {
     }
     
     // Create peer connection with caller's ID
+    console.log('Creating peer connection for answer');
     directCallPC = createDirectCallPeerConnection(currentDirectCall.id);
     
     // Display local video if video call
@@ -1976,16 +2009,30 @@ async function acceptIncomingCall() {
     
     // If we have a pending offer, process it now
     if (window.pendingCallOffer && window.pendingCallOffer.callId === currentCallId) {
+      console.log('Processing pending offer');
       const { offer, userId } = window.pendingCallOffer;
+      
       await directCallPC.setRemoteDescription(new RTCSessionDescription(offer));
-      const answer = await directCallPC.createAnswer();
+      console.log('Remote description set, creating answer');
+      
+      const answer = await directCallPC.createAnswer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: isVideoCall
+      });
+      
+      console.log('Setting local description (answer)');
       await directCallPC.setLocalDescription(answer);
+      
+      console.log('Sending call-answer');
       socket.emit('call-answer', {
         callId: currentCallId,
         targetUserId: userId,
         answer: answer
       });
+      
       window.pendingCallOffer = null;
+    } else {
+      console.warn('No pending offer found for call:', currentCallId);
     }
     
     // Emit acceptance
@@ -2033,12 +2080,34 @@ async function initiateDirectCall(friendId, friendName, friendAvatar, callType =
   }
   
   try {
+    console.log('Initiating', callType, 'call to', friendName);
+    
     // Request microphone and optionally camera
     const constraints = { 
-      audio: true, 
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      },
       video: callType === 'video' ? { width: 1280, height: 720 } : false 
     };
+    
+    console.log('Requesting media with constraints:', constraints);
     localStream = await navigator.mediaDevices.getUserMedia(constraints);
+    
+    console.log('Got local stream with tracks:', localStream.getTracks().map(t => `${t.kind}(${t.enabled})`));
+    
+    // Verify audio track is present and enabled
+    const audioTracks = localStream.getAudioTracks();
+    if (audioTracks.length === 0) {
+      throw new Error('No audio track in local stream');
+    }
+    audioTracks.forEach(track => {
+      console.log('Audio track enabled:', track.enabled);
+      if (!track.enabled) {
+        track.enabled = true;
+      }
+    });
     
     // Store video stream if it's a video call
     if (callType === 'video') {
@@ -2055,7 +2124,8 @@ async function initiateDirectCall(friendId, friendName, friendAvatar, callType =
       avatar: friendAvatar
     };
     
-    // Create peer connection
+    // Create peer connection BEFORE creating offer
+    console.log('Creating peer connection');
     directCallPC = createDirectCallPeerConnection(friendId);
     
     // Display local video if video call
@@ -2066,10 +2136,17 @@ async function initiateDirectCall(friendId, friendName, friendAvatar, callType =
       }
     }
     
+    console.log('Creating offer');
     // Create and send offer
-    const offer = await directCallPC.createOffer();
+    const offer = await directCallPC.createOffer({
+      offerToReceiveAudio: true,
+      offerToReceiveVideo: callType === 'video'
+    });
+    
+    console.log('Setting local description');
     await directCallPC.setLocalDescription(offer);
     
+    console.log('Sending call-initiate and call-offer');
     socket.emit('call-initiate', {
       targetUserId: friendId,
       callType: callType,
@@ -2107,15 +2184,19 @@ function createDirectCallPeerConnection(remoteUserId) {
   
   // Add local stream tracks
   if (localStream) {
-    console.log('Adding local tracks:', localStream.getTracks().map(t => t.kind));
+    console.log('Adding local tracks to peer connection:', localStream.getTracks().map(t => `${t.kind}(${t.enabled})`));
     localStream.getTracks().forEach(track => {
+      console.log('Adding track:', track.kind, 'enabled:', track.enabled);
       pc.addTrack(track, localStream);
     });
+  } else {
+    console.warn('No local stream available when creating peer connection');
   }
   
-  // Create audio element for remote audio
+  // Create audio element for remote audio ONCE
   let remoteAudio = document.getElementById('remote-audio-direct');
   if (!remoteAudio) {
+    console.log('Creating remote audio element');
     remoteAudio = document.createElement('audio');
     remoteAudio.id = 'remote-audio-direct';
     remoteAudio.autoplay = true;
@@ -2126,27 +2207,52 @@ function createDirectCallPeerConnection(remoteUserId) {
     document.body.appendChild(remoteAudio);
   }
   
-  // Handle remote stream
-  let remoteStream = null;
+  // Handle remote stream - Use onaddstream as well for wider compatibility
+  pc.onaddstream = (event) => {
+    console.log('onaddstream called with stream:', event.stream);
+    remoteAudio.srcObject = event.stream;
+    remoteAudio.play().catch(e => console.error('Play error in onaddstream:', e));
+  };
   
+  // Handle remote track (modern approach)
   pc.ontrack = (event) => {
-    console.log('Remote track received:', event.track.kind, event.track.enabled);
+    console.log('ontrack - Remote track received:', event.track.kind, 'enabled:', event.track.enabled, 'readyState:', event.track.readyState);
     
-    // Store remote stream reference
-    if (event.streams.length > 0) {
-      remoteStream = event.streams[0];
+    if (!event.streams || event.streams.length === 0) {
+      console.warn('No streams in ontrack event');
+      return;
     }
     
+    const remoteStream = event.streams[0];
+    console.log('Remote stream has tracks:', remoteStream.getTracks().map(t => `${t.kind}(${t.enabled})`));
+    
     if (event.track.kind === 'audio') {
-      console.log('Setting audio srcObject');
-      if (remoteStream) {
-        remoteAudio.srcObject = remoteStream;
-        remoteAudio.play().catch(e => console.log('Audio play error:', e));
+      console.log('Handling audio track - setting to remote audio element');
+      remoteAudio.srcObject = remoteStream;
+      
+      // Ensure audio can play
+      remoteAudio.volume = 1.0;
+      remoteAudio.muted = false;
+      
+      // Try to play
+      const playPromise = remoteAudio.play();
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => {
+            console.log('Audio playing successfully');
+          })
+          .catch(error => {
+            console.error('Audio play error:', error);
+            // Try again after user interaction
+            document.addEventListener('click', () => {
+              remoteAudio.play().catch(e => console.log('Delayed play error:', e));
+            }, { once: true });
+          });
       }
     } else if (event.track.kind === 'video') {
-      console.log('Video track received');
+      console.log('Handling video track');
       const remoteVideo = document.getElementById('remote-video-direct');
-      if (remoteVideo && remoteStream) {
+      if (remoteVideo) {
         remoteVideo.srcObject = remoteStream;
       }
     }
@@ -2155,6 +2261,7 @@ function createDirectCallPeerConnection(remoteUserId) {
   // Handle ICE candidates
   pc.onicecandidate = (event) => {
     if (event.candidate) {
+      console.log('Sending ICE candidate');
       socket.emit('call-ice-candidate', {
         callId: currentCallId,
         targetUserId: remoteUserId || currentDirectCall?.id,
